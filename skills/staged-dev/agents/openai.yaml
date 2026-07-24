@@ -1,0 +1,7 @@
+interface:
+  display_name: "分阶段开发"
+  short_description: "为长周期高风险任务隔离方案、实现、返工与独立审查流程"
+  default_prompt: "使用 $staged-dev planner 为当前长周期或高风险开发任务制定可审阅方案。"
+
+policy:
+  allow_implicit_invocation: false
