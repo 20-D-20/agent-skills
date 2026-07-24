@@ -12,17 +12,33 @@ agent-skills/
 
 ## Skills 分发
 
-通过 [skills.sh](https://www.skills.sh/) CLI 安装（默认 symlink，单一源）：
+通过 [skills.sh](https://www.skills.sh/) CLI 全局安装：
 
-```bash
-# 全局安装到多个 agent
-npx skills add <owner>/agent-skills -g -a claude-code -a <other-agent>
+```powershell
+# 全局安装本仓库全部 skill
+npx skills add 20-D-20/agent-skills -g -a claude-code -s '*' -y
 
-# 更新
+# 内容更新后重拉
 npx skills update
 ```
 
-> Windows 注意：symlink 需开启开发者模式，装完确认是 `<SYMLINKD>` 而非普通复制。
+> Windows 上 skills.sh 对 claude-code **强制 copy 模式**（与 symlink 权限无关），
+> 因此"改仓库"与"生效"是两步：push 后必须再跑一次 `add`/`update`。
+
+### 新增 skill 到仓库并分发：`add-skill.ps1`
+
+把"拉取 → 入库 → commit → push → 分发"包成一条命令：
+
+```powershell
+# 收录 skills.sh 上的公开 skill
+.\add-skill.ps1 -Source someone/repo -Skill cool-skill
+
+# 分发自己写在 skills/<name> 下的新 skill
+.\add-skill.ps1 -Skill my-new-skill -Local
+
+# push 前本地测试（从本地路径分发，不推远程）
+.\add-skill.ps1 -Skill my-new-skill -Local -NoPush
+```
 
 ### Skill 分类
 
