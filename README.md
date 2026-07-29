@@ -1,75 +1,182 @@
 # agent-skills
 
-个人 AI Agent 配置中央仓库：统一管理 skills 与 rules，作为所有工具（Claude Code / Antigravity 等）的单一权威源。
+个人 AI Agent 配置中央仓库：统一维护 skills 与 rules，再分发到 Linux / Windows 上已安装的 Agent。
 
 ## 目录结构
 
-```
+```text
 agent-skills/
-├── skills/     # Agent Skills（每个子目录一个 skill，含 SKILL.md）
-└── rules/      # 规则文件（双 frontmatter，兼容 Claude Code 与 Windsurf/Antigravity 系）
+├── skills/              # Agent Skills，每个子目录包含 SKILL.md
+├── rules/               # 复制到具体项目的规则文件
+├── scripts/lib.sh       # Linux 脚本公共逻辑
+├── setup-linux.sh       # Linux 首次初始化
+├── sync-skills.sh       # 同步全部 skills
+├── add-skill.sh         # 收录并分发一个 skill
+├── remove-skill.sh      # 本机卸载或从中央仓库删除
+├── sync-rules.sh        # 向一个或多个项目同步 rules
+├── add-skill.ps1        # Windows 收录与分发
+└── sync-rules.ps1       # Windows rules 同步
 ```
 
-## Skills 分发
+## Linux 首次部署
 
-通过 [skills.sh](https://www.skills.sh/) CLI 全局安装：
+前置条件：
 
-```powershell
-# 全局安装本仓库全部 skill
-npx skills add 20-D-20/agent-skills -g -a claude-code -s '*' -y
+- Git
+- Node.js 18 或更高版本（含 npm / npx）
+- GNU `readlink`
+- 至少一个已经安装或初始化过的 Agent，例如 Claude Code、Codex、Cursor、Gemini CLI 或 OpenCode
 
-# 内容更新后重拉
-npx skills update
+脚本只检查这些依赖，不会执行 `apt`、`sudo` 或自动安装软件。
+
+```bash
+git clone https://github.com/20-D-20/agent-skills.git
+cd agent-skills
+./setup-linux.sh
 ```
 
-> Windows 上 skills.sh 对 claude-code **强制 copy 模式**（与 symlink 权限无关），
-> 因此"改仓库"与"生效"是两步：push 后必须再跑一次 `add`/`update`。
+初始化脚本会同步仓库里的全部 skills。它先用本机命令和配置目录做安全预检，再由 skills CLI 完成实际的 Agent 识别。若没有检测到任何 Agent，脚本会中止，避免无人值守模式意外选择全部 Agent。
 
-### 新增 skill 到仓库并分发：`add-skill.ps1`
+需要安装便捷命令时：
 
-把"拉取 → 入库 → commit → push → 分发"包成一条命令：
-
-```powershell
-# 收录 skills.sh 上的公开 skill
-.\add-skill.ps1 -Source someone/repo -Skill cool-skill
-
-# 分发自己写在 skills/<name> 下的新 skill
-.\add-skill.ps1 -Skill my-new-skill -Local
-
-# push 前本地测试（从本地路径分发，不推远程）
-.\add-skill.ps1 -Skill my-new-skill -Local -NoPush
+```bash
+./setup-linux.sh --install-commands
 ```
 
-### Skill 分类
+它会在 `~/.local/bin` 创建以下符号链接，且不会覆盖已有的不同文件：
 
-- **通用**：doc-writer, grill-me, grill-with-docs, handoff, logic-extractor, prototype, staged-dev, tdd, to-issues, to-prd, write-a-skill
-- **嵌入式/项目向**：git-commit, easylogger, embedded-doc（按需装到具体项目）
+- `agent-skills-setup`
+- `agent-skills-sync`
+- `agent-skills-add`
+- `agent-skills-remove`
+- `agent-rules-sync`
+
+只有确实希望覆盖 skills CLI 支持的全部 Agent 时，才显式使用 `--all-agents`。
+
+## Skills 日常同步
+
+默认从当前检出的仓库内容同步全部 skills：
+
+```bash
+./sync-skills.sh
+```
+
+先对中央仓库执行 fast-forward 更新再同步：
+
+```bash
+./sync-skills.sh --pull
+```
+
+同步是增量更新：会新增或覆盖同名 skill，不会自动删除本机多余的 skill。删除必须使用 `remove-skill.sh` 明确执行。
+
+Linux 上 skills CLI 通常把内容维护在 `~/.agents/skills`，再向各 Agent 目录创建符号链接；Windows 使用目录联接（junction）。如果链接创建失败，CLI 可能回退为复制，因此仓库更新后仍建议执行一次同步。
+
+## 收录一个 skill
+
+从外部仓库收录：
+
+```bash
+./add-skill.sh --source someone/repo --skill cool-skill
+```
+
+外部内容会先导入临时隔离目录，验证存在 `SKILL.md` 后才写入本仓库，不会在收录阶段直接激活到全局 Agent 目录。请只使用可信来源。
+
+收录已经写在 `skills/<name>` 下的本地 skill：
+
+```bash
+./add-skill.sh --local --skill my-new-skill
+```
+
+默认流程是“收录 → 独立 commit → push → 全局分发”。push 前测试可使用：
+
+```bash
+./add-skill.sh --local --skill my-new-skill --no-push
+```
+
+脚本只提交目标 `skills/<name>` 路径，不会带入工作区或暂存区中的其他变更。如果当前分支在 upstream 之前已经存在旧的未推送提交，默认流程会拒绝代为 push；此时请手动处理，或使用 `--no-push`。
+
+## 删除一个 skill
+
+只从本机 Agent 目录卸载，不修改中央仓库：
+
+```bash
+./remove-skill.sh cool-skill
+```
+
+同时从中央仓库删除、commit、push，再从本机卸载：
+
+```bash
+./remove-skill.sh cool-skill --from-repo
+```
+
+中央删除默认要求输入 skill 名称确认。自动化环境可以增加 `--yes`；只创建本地删除提交时增加 `--no-push`。仓库删除的内容仍可从 Git 历史恢复。
 
 ## Rules 分发
 
-rules 是项目规范，**不装全局**——复制进目标项目的 `.claude/rules/` 与 `.agent/rules/` 并提交进该项目的 git：
+rules 不全局安装，而是复制到目标项目的 `.claude/rules/` 与 `.agent/rules/`：
 
-```powershell
-Copy-Item rules\* <project>\.claude\rules\ -Force
-Copy-Item rules\* <project>\.agent\rules\ -Force
+```bash
+./sync-rules.sh /path/to/project-a /path/to/project-b
 ```
 
-### frontmatter 约定
+同名文件会覆盖，目标目录里额外存在的文件不会删除。同步后应在目标项目检查并提交变更。
 
-每个 rule 同时携带两套条件加载键，各工具只认自己的：
+每个 rule 同时携带两套条件加载键，各工具读取自己支持的字段：
 
 ```yaml
 ---
-trigger: glob          # Windsurf/Antigravity 系
-globs: **/*.{c,h}
-paths:                 # Claude Code
+trigger: glob
+globs: "**/*.{c,h}"
+paths:
   - "**/*.{c,h}"
 ---
 ```
 
-修改 rule 时两套键必须同步维护。
+修改 rule 时应同步维护两套键。
+
+## Windows
+
+直接用 skills CLI 同步全部 skills，并让它自动识别本机 Agent：
+
+```powershell
+npx -y skills@1 add 20-D-20/agent-skills -g -s '*' -y
+```
+
+收录外部或本地 skill：
+
+```powershell
+.\add-skill.ps1 -Source someone/repo -Skill cool-skill
+.\add-skill.ps1 -Skill my-new-skill -Local
+.\add-skill.ps1 -Skill my-new-skill -Local -NoPush
+```
+
+明确同步到全部 Agent 时增加 `-AllAgents`。Windows 脚本同样会做零 Agent 防护、隔离导入、目标路径独立提交和旧提交 push 防护。
+
+向一个或多个项目同步 rules：
+
+```powershell
+.\sync-rules.ps1 -ProjectPath "D:\project-a", "D:\project-b"
+```
+
+## CLI 版本与遥测
+
+维护脚本默认调用 `skills@1`，锁定主版本并接收兼容更新。需要精确版本或主动测试新版时可以覆盖：
+
+```bash
+SKILLS_CLI_PACKAGE=skills@1.5.9 ./sync-skills.sh
+SKILLS_CLI_PACKAGE=skills@latest ./sync-skills.sh
+```
+
+```powershell
+$env:SKILLS_CLI_PACKAGE = "skills@1.5.9"
+.\add-skill.ps1 -Skill my-skill -Local
+```
+
+所有维护脚本都会设置 `DISABLE_TELEMETRY=1`。
 
 ## 维护约定
 
-- 本仓库是唯一编辑入口；不要直接改各工具目录下的副本，改完这里再分发
-- `rules/architecture-maintain.md` 为 MH3500C 项目专属，其余 rules 为嵌入式通用规范
+- 本仓库是唯一编辑入口；不要直接修改各 Agent 目录中的副本。
+- skills 同步不负责删除；删除必须显式调用 `remove-skill.sh`。
+- rules 始终按项目复制，不做全局安装或符号链接。
+- `rules/architecture-maintain.md` 为 MH3500C 项目专属，其余 rules 为嵌入式通用规范。

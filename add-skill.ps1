@@ -1,25 +1,22 @@
-﻿<#
+<#
 .SYNOPSIS
-  一条命令：把一个 skill 收进中央仓库并分发到全局。
+  把一个 skill 收进中央仓库并分发到本机已安装的 Agent。
 .DESCRIPTION
-  两种用法：
-    1) 拉取模式（默认）：从 skills.sh 上某个来源仓库拉一个公开 skill，
-       搬进本仓库 skills/，commit + push，再从本仓库重新分发到全局
-       （让日后 npx skills update 从"你的"仓库拉，而不是原作者仓库）。
-    2) 本地模式（-Local）：skill 已经写在本仓库 skills/<name> 下，
-       跳过拉取，只做 commit + push + 分发。
+  拉取模式会先把外部 skill 导入临时隔离目录，再复制到本仓库；本地模式
+  使用 skills/<name> 中的现有内容。随后脚本只提交目标 skill，默认 push，
+  最后交给 skills CLI 自动识别本机 Agent 并全局分发。
 .PARAMETER Skill
   skill 名称（对应 skills/<Skill> 目录）。
 .PARAMETER Source
-  拉取模式下的来源仓库，如 "vercel-labs/agent-skills"。本地模式可省略。
+  拉取模式下的来源仓库或本地路径。本地模式可省略。
 .PARAMETER Local
   skill 已在本仓库，跳过拉取步骤。
 .PARAMETER NoPush
-  只做本地 commit、不 push，并从本地路径分发（用于 push 前测试）。
+  创建本地提交但不 push，并从本地路径分发。
+.PARAMETER AllAgents
+  明确要求 skills CLI 分发到其支持的全部 Agent。
 .EXAMPLE
   .\add-skill.ps1 -Source someone/repo -Skill cool-skill
-.EXAMPLE
-  .\add-skill.ps1 -Skill my-new-skill -Local
 .EXAMPLE
   .\add-skill.ps1 -Skill my-new-skill -Local -NoPush
 #>
@@ -31,80 +28,254 @@ param(
 
     [switch]$Local,
 
-    [switch]$NoPush
+    [switch]$NoPush,
+
+    [switch]$AllAgents
 )
 
 $ErrorActionPreference = "Stop"
+$env:DISABLE_TELEMETRY = "1"
+$SkillsCliPackage = if ($env:SKILLS_CLI_PACKAGE) { $env:SKILLS_CLI_PACKAGE } else { "skills@1" }
 
-function Assert-LastExit([string]$Msg)
+function Assert-LastExit([string]$Message)
 {
-    if ($LASTEXITCODE -ne 0) { throw "$Msg (exit=$LASTEXITCODE)" }
+    if ($LASTEXITCODE -ne 0) { throw "$Message (exit=$LASTEXITCODE)" }
+}
+
+function Assert-Command([string]$Name)
+{
+    if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
+        throw "缺少依赖：$Name（脚本只检测依赖，不会自动安装）"
+    }
+}
+
+function Invoke-Skills
+{
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$CliArguments
+    )
+
+    & npx -y $SkillsCliPackage @CliArguments
+    Assert-LastExit "skills CLI 执行失败"
+}
+
+function Test-LocalAgent
+{
+    $userProfile = [Environment]::GetFolderPath("UserProfile")
+    $configHome = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $userProfile ".config" }
+    $claudeHome = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $userProfile ".claude" }
+    $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $userProfile ".codex" }
+    $autohandHome = if ($env:AUTOHAND_HOME) { $env:AUTOHAND_HOME } else { Join-Path $userProfile ".autohand" }
+    $grokHome = if ($env:GROK_HOME) { $env:GROK_HOME } else { Join-Path $userProfile ".grok" }
+    $hermesHome = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $userProfile ".hermes" }
+    $vibeHome = if ($env:VIBE_HOME) { $env:VIBE_HOME } else { Join-Path $userProfile ".vibe" }
+
+    $markers = @(
+        $claudeHome,
+        $codexHome,
+        $autohandHome,
+        $grokHome,
+        $hermesHome,
+        $vibeHome,
+        (Join-Path $userProfile ".aider-desk"),
+        (Join-Path $configHome "amp"),
+        (Join-Path $userProfile ".gemini"),
+        (Join-Path $userProfile ".astrbot"),
+        (Join-Path $userProfile ".augment"),
+        (Join-Path $userProfile ".bob"),
+        (Join-Path $userProfile ".openclaw"),
+        (Join-Path $userProfile ".clawdbot"),
+        (Join-Path $userProfile ".moltbot"),
+        (Join-Path $userProfile ".cline"),
+        (Join-Path $userProfile ".codeartsdoer"),
+        (Join-Path $userProfile ".codebuddy"),
+        (Join-Path $userProfile ".codemaker"),
+        (Join-Path $userProfile ".codestudio"),
+        (Join-Path $userProfile ".commandcode"),
+        (Join-Path $userProfile ".continue"),
+        (Join-Path $userProfile ".snowflake\cortex"),
+        (Join-Path $userProfile ".config\crush"),
+        (Join-Path $userProfile ".cursor"),
+        (Join-Path $userProfile ".deepagents"),
+        (Join-Path $configHome "devin"),
+        (Join-Path $userProfile ".dexto"),
+        (Join-Path $userProfile ".factory"),
+        (Join-Path $userProfile ".firebender"),
+        (Join-Path $userProfile ".forge"),
+        (Join-Path $userProfile ".copilot"),
+        (Join-Path $configHome "goose"),
+        (Join-Path $userProfile ".inferencesh"),
+        (Join-Path $userProfile ".jazz"),
+        (Join-Path $userProfile ".junie"),
+        (Join-Path $userProfile ".iflow"),
+        (Join-Path $userProfile ".kilocode"),
+        (Join-Path $userProfile ".config\kimchi"),
+        (Join-Path $userProfile ".kimi-code"),
+        (Join-Path $userProfile ".kimi"),
+        (Join-Path $userProfile ".kiro"),
+        (Join-Path $userProfile ".kode"),
+        (Join-Path $userProfile ".lingma"),
+        (Join-Path $userProfile ".loaf"),
+        (Join-Path $userProfile ".mcpjam"),
+        (Join-Path $userProfile ".moxby"),
+        (Join-Path $userProfile ".mux"),
+        (Join-Path $userProfile ".openhands"),
+        (Join-Path $userProfile ".ona"),
+        (Join-Path $userProfile ".pi\agent"),
+        (Join-Path $userProfile ".qoder"),
+        (Join-Path $userProfile ".qoder-cn"),
+        (Join-Path $userProfile ".qwen"),
+        (Join-Path $userProfile ".reasonix"),
+        (Join-Path $userProfile ".rovodev"),
+        (Join-Path $userProfile ".roo"),
+        (Join-Path $userProfile ".tabnine"),
+        (Join-Path $userProfile ".terramind"),
+        (Join-Path $userProfile ".tinycloud"),
+        (Join-Path $userProfile ".trae"),
+        (Join-Path $userProfile ".trae-cn"),
+        (Join-Path $userProfile ".warp"),
+        (Join-Path $userProfile ".codeium\windsurf"),
+        (Join-Path $configHome "opencode"),
+        (Join-Path $configHome "zed"),
+        (Join-Path $userProfile ".zcode"),
+        (Join-Path $userProfile ".zencoder"),
+        (Join-Path $userProfile ".neovate"),
+        (Join-Path $userProfile ".pochi"),
+        (Join-Path $userProfile ".adal")
+    )
+    foreach ($marker in $markers) {
+        if (Test-Path $marker) { return $true }
+    }
+    return $false
+}
+
+function Assert-PushSafe([string]$Repository)
+{
+    $upstreamOutput = & git -C $Repository rev-parse --abbrev-ref --symbolic-full-name "@{upstream}" 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $upstreamOutput) {
+        throw "当前分支没有 upstream；请先配置 upstream，或使用 -NoPush 后手动处理"
+    }
+    $upstream = ([string]$upstreamOutput).Trim()
+
+    $aheadOutput = & git -C $Repository rev-list --count "$upstream..HEAD"
+    Assert-LastExit "无法检查当前分支的推送状态"
+    $ahead = 0
+    if (-not [int]::TryParse(([string]$aheadOutput).Trim(), [ref]$ahead)) {
+        throw "无法识别未推送提交数量：$aheadOutput"
+    }
+    if ([int]$ahead -gt 0) {
+        throw "当前分支在 $upstream 之前已有 $ahead 个未推送提交；为避免代推旧提交，请使用 -NoPush 或先手动处理"
+    }
+}
+
+foreach ($dependency in @("git", "node", "npm", "npx")) { Assert-Command $dependency }
+
+$nodeMajorOutput = & node -p 'Number(process.versions.node.split(".")[0])'
+Assert-LastExit "无法读取 Node.js 版本"
+$nodeMajor = 0
+if (-not [int]::TryParse(([string]$nodeMajorOutput).Trim(), [ref]$nodeMajor)) {
+    throw "无法识别 Node.js 主版本：$nodeMajorOutput"
+}
+if ($nodeMajor -lt 18) { throw "Node.js 版本过低：需要 18 或更高版本" }
+
+if ($Skill -notmatch '^[a-z0-9][a-z0-9._-]*$' -or $Skill -in @('.', '..')) {
+    throw "无效的 skill 名称 '$Skill'：仅允许小写字母、数字、点、下划线和连字符"
+}
+if ($Local -and $Source) { throw "-Local 与 -Source 不能同时使用" }
+if (-not $Local -and -not $Source) { throw "拉取模式需要 -Source；若 skill 已在本仓库请加 -Local" }
+if (-not $AllAgents -and -not (Test-LocalAgent)) {
+    throw "未发现本机 Agent。为避免 skills CLI 在无人值守模式下选择全部 Agent，已中止；请先安装 Agent，或明确传入 -AllAgents"
 }
 
 $repo = $PSScriptRoot
 $skillsDir = Join-Path $repo "skills"
-$dst = Join-Path $skillsDir $Skill
+$destination = Join-Path $skillsDir $Skill
+$relativePath = "skills/$Skill"
+if (-not (Test-Path (Join-Path $repo ".git"))) { throw "不是 Git 仓库：$repo" }
+if (-not (Test-Path $skillsDir)) { throw "找不到 skills 目录：$skillsDir" }
 
-# 读取本仓库的 GitHub 远程作为分发来源
-$origin = (git -C $repo remote get-url origin 2>$null).Trim()
-if (-not $origin) { throw "本仓库没有配置 origin 远程" }
+$originOutput = & git -C $repo remote get-url origin 2>$null
+if ($LASTEXITCODE -ne 0 -or -not $originOutput) { throw "本仓库没有配置 origin 远程" }
+$origin = ([string]$originOutput).Trim()
+if (-not $NoPush) { Assert-PushSafe $repo }
 
-# ---- 步骤 1：取得 skill 文件 ----
-if (-not $Local)
+$agentArgs = @()
+if ($AllAgents) { $agentArgs = @("-a", "*") }
+
+if ($Local)
 {
-    if (-not $Source) { throw "拉取模式需要 -Source；若 skill 已在本仓库请加 -Local" }
-    Write-Host "[1/4] 从 $Source 拉取 $Skill ..." -ForegroundColor Cyan
-    npx -y skills add $Source -g -a claude-code -s $Skill -y
-    Assert-LastExit "从 $Source 拉取失败"
-    $pulled = Join-Path $env:USERPROFILE ".claude\skills\$Skill"
-    if (-not (Test-Path $pulled)) { throw "拉取后未找到 $pulled，检查 skill 名是否正确" }
-    Copy-Item $pulled $skillsDir -Recurse -Force
-    Write-Host "      已搬入 $dst"
+    if (-not (Test-Path (Join-Path $destination "SKILL.md"))) {
+        throw "本地 skill 不存在或缺少 SKILL.md：$destination"
+    }
+    Write-Host "[1/4] 使用本仓库中的 $relativePath" -ForegroundColor Cyan
 }
 else
 {
-    if (-not (Test-Path $dst)) { throw "本地模式下 $dst 不存在" }
-    Write-Host "[1/4] 本地模式：使用已存在的 $dst" -ForegroundColor Cyan
+    Write-Host "[1/4] 从 $Source 隔离导入 $Skill ..." -ForegroundColor Cyan
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("agent-skills-" + [guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $tempRoot | Out-Null
+    try {
+        Push-Location $tempRoot
+        try {
+            Invoke-Skills add $Source -s $Skill -a universal -y
+        }
+        finally {
+            Pop-Location
+        }
+
+        $imported = Join-Path $tempRoot ".agents\skills\$Skill"
+        if (-not (Test-Path (Join-Path $imported "SKILL.md"))) {
+            throw "隔离导入后未找到有效 skill：$imported"
+        }
+        if (Test-Path $destination) { Remove-Item $destination -Recurse -Force }
+        Copy-Item $imported $destination -Recurse -Force
+    }
+    finally {
+        if (Test-Path $tempRoot) { Remove-Item $tempRoot -Recurse -Force }
+    }
+    Write-Host "      已收录到 $relativePath"
 }
 
-# ---- 步骤 2：commit ----
-Write-Host "[2/4] 提交到中央仓库 ..." -ForegroundColor Cyan
-git -C $repo add "skills/$Skill"
-$staged = git -C $repo diff --cached --name-only
-if (-not $staged)
+Write-Host "[2/4] 创建目标路径的独立提交 ..." -ForegroundColor Cyan
+& git -C $repo add -A -- $relativePath
+Assert-LastExit "git add 失败"
+& git -C $repo diff --cached --quiet -- $relativePath
+$diffExit = $LASTEXITCODE
+$commitCreated = $false
+if ($diffExit -eq 0)
 {
-    Write-Host "      无变更（skill 内容与仓库一致），跳过提交" -ForegroundColor Yellow
+    Write-Host "      skill 内容无变化，跳过提交" -ForegroundColor Yellow
 }
-else
+elseif ($diffExit -eq 1)
 {
-    git -C $repo commit -m "feat: 收录/更新 skill $Skill"
+    & git -C $repo commit --only -m "feat: 收录/更新 skill $Skill" -- $relativePath
     Assert-LastExit "commit 失败"
+    $commitCreated = $true
+}
+else
+{
+    throw "无法检查暂存变更 (exit=$diffExit)"
 }
 
-# ---- 步骤 3：push ----
 if ($NoPush)
 {
     Write-Host "[3/4] -NoPush：跳过 push" -ForegroundColor Yellow
 }
-else
+elseif ($commitCreated)
 {
-    Write-Host "[3/4] 推送到远程 ..." -ForegroundColor Cyan
-    git -C $repo push
+    Write-Host "[3/4] 推送新提交 ..." -ForegroundColor Cyan
+    & git -C $repo push
     Assert-LastExit "push 失败"
 }
-
-# ---- 步骤 4：分发到全局 ----
-# NoPush 时远程还没这个 skill，从本地路径分发；否则从 GitHub 远程分发
-if ($NoPush)
-{
-    Write-Host "[4/4] 从本地仓库分发到全局（未 push）..." -ForegroundColor Cyan
-    npx -y skills add $repo -g -a claude-code -s $Skill -y
-}
 else
 {
-    Write-Host "[4/4] 从 $origin 分发到全局 ..." -ForegroundColor Cyan
-    npx -y skills add $origin -g -a claude-code -s $Skill -y
+    Write-Host "[3/4] 没有新提交，跳过 push" -ForegroundColor Yellow
 }
-Assert-LastExit "分发到全局失败"
 
-Write-Host "完成：$Skill 已入库并分发到全局。" -ForegroundColor Green
+$distributionSource = if ($NoPush) { $repo } else { $origin }
+Write-Host "[4/4] 从 $distributionSource 分发到本机 Agent ..." -ForegroundColor Cyan
+$distributionArgs = @("add", $distributionSource, "-g", "-s", $Skill) + $agentArgs + @("-y")
+Invoke-Skills @distributionArgs
+
+Write-Host "完成：$Skill 已入库并分发。" -ForegroundColor Green
