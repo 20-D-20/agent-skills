@@ -1,8 +1,6 @@
 ---
 trigger: glob
 globs: **/*.{c,h}
-paths:
-  - "**/*.{c,h}"
 description: 嵌入式分层架构设计原则、模块解耦策略、接口设计模板
 ---
 

@@ -1,5 +1,6 @@
 ---
-trigger: always_on
+trigger: glob
+globs: **/*.{cpp,h,hpp}
 ---
 
 # 架构文档自动维护

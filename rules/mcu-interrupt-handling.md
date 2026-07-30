@@ -1,8 +1,6 @@
 ---
 trigger: glob
 globs: **/*.{c,h}
-paths:
-  - "**/*.{c,h}"
 description: 中断处理规范、ISR 核心设计铁律（禁止阻塞/非法 API 调用）、FromISR 标准模板
 ---
 

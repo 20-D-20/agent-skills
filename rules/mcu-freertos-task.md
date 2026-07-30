@@ -1,8 +1,6 @@
 ---
 trigger: glob
 globs: **/*.{c,h}
-paths:
-  - "**/*.{c,h}"
 description: FreeRTOS 任务管理规范、任务注册与业务逻辑解耦及入口函数放置规则
 ---
 

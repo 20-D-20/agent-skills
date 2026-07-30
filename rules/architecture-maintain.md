@@ -1,17 +1,6 @@
 ---
 trigger: glob
-globs:
-  - Core/Src/freertos.c
-  - Drivers/BSP/**/*.{c,h}
-  - Application/**/*.{c,h}
-  - RecStore/**/*.{c,h}
-  - LittleFs/**/*.{c,h}
-paths:
-  - "Core/Src/freertos.c"
-  - "Drivers/BSP/**/*.{c,h}"
-  - "Application/**/*.{c,h}"
-  - "RecStore/**/*.{c,h}"
-  - "LittleFs/**/*.{c,h}"
+globs: Core/Src/freertos.c,Drivers/BSP/**/*.{c,h},Application/**/*.{c,h},RecStore/**/*.{c,h},LittleFs/**/*.{c,h}
 description: 编辑任务注册、BSP 驱动或 Application 模块时，路由到正确的架构相关文档并检查同步
 ---
 

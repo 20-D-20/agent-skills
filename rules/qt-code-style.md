@@ -1,7 +1,7 @@
 ---
 trigger: glob
-description: Qt/C++ 代码风格规范：命名约定、类结构模板、注释规范、clang-format 配置
 globs: **/*.{cpp,h,hpp,ui}
+description: Qt/C++ 代码风格规范：命名约定、类结构模板、注释规范、clang-format 配置
 ---
 
 # 📐 Qt/C++ 代码规范
