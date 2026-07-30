@@ -123,8 +123,8 @@ if [[ $no_push == true ]]; then
   distribution_source=$REPO_DIR
   info "从本地仓库分发 $skill"
 else
-  distribution_source=$origin
-  info "从 $origin 分发 $skill"
+  distribution_source=$(distribution_source_from_origin "$origin")
+  info "从 $distribution_source 分发 $skill"
 fi
 run_skills add "$distribution_source" -g -s "$skill" "${AGENT_ARGS[@]}" -y
 info "$skill 已入库并分发"

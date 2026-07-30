@@ -56,8 +56,40 @@ function Invoke-Skills
         [string[]]$CliArguments
     )
 
-    & npx -y $SkillsCliPackage @CliArguments
-    Assert-LastExit "skills CLI 执行失败"
+    # skills CLI 在自己的 TUI 里执行 git clone，交互式认证提示（SSH key passphrase、
+    # 未知 host key、HTTPS 用户名密码）会被 TUI 吞掉，进程就永久挂在 "Cloning
+    # repository…"。BatchMode 让认证失败立即报错退出，而不是等待一个看不见的输入。
+    $previousSshCommand = $env:GIT_SSH_COMMAND
+    $previousTerminalPrompt = $env:GIT_TERMINAL_PROMPT
+    if (-not $previousSshCommand) { $env:GIT_SSH_COMMAND = "ssh -o BatchMode=yes" }
+    $env:GIT_TERMINAL_PROMPT = "0"
+    try {
+        & npx -y $SkillsCliPackage @CliArguments
+        Assert-LastExit "skills CLI 执行失败"
+    }
+    finally {
+        $env:GIT_SSH_COMMAND = $previousSshCommand
+        $env:GIT_TERMINAL_PROMPT = $previousTerminalPrompt
+    }
+}
+
+# 分发只是一次只读 clone，不需要写权限。把 GitHub 的 SSH origin 转成
+# owner/repo 简写后走 HTTPS，可以完全绕开 SSH 认证；非 GitHub 或无法识别的
+# 地址原样返回。设置 AGENT_SKILLS_KEEP_ORIGIN_URL=1 可强制使用原始 origin
+# （例如私有仓库必须走 SSH 的场景）。
+function Convert-DistributionSource([string]$Origin)
+{
+    if ($env:AGENT_SKILLS_KEEP_ORIGIN_URL -eq "1") { return $Origin }
+
+    $path = $null
+    if ($Origin -match '^git@github\.com:(.+)$') { $path = $Matches[1] }
+    elseif ($Origin -match '^ssh://git@github\.com/(.+)$') { $path = $Matches[1] }
+    elseif ($Origin -match '^https?://github\.com/(.+)$') { $path = $Matches[1] }
+    else { return $Origin }
+
+    $path = ($path -replace '\.git$', '').TrimEnd('/')
+    if ($path -match '^[^/]+/[^/]+$') { return $path }
+    return $Origin
 }
 
 function Test-LocalAgent
@@ -273,7 +305,7 @@ else
     Write-Host "[3/4] 没有新提交，跳过 push" -ForegroundColor Yellow
 }
 
-$distributionSource = if ($NoPush) { $repo } else { $origin }
+$distributionSource = if ($NoPush) { $repo } else { Convert-DistributionSource $origin }
 Write-Host "[4/4] 从 $distributionSource 分发到本机 Agent ..." -ForegroundColor Cyan
 $distributionArgs = @("add", $distributionSource, "-g", "-s", $Skill) + $agentArgs + @("-y")
 Invoke-Skills @distributionArgs

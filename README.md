@@ -174,6 +174,26 @@ $env:SKILLS_CLI_PACKAGE = "skills@1.5.9"
 
 所有维护脚本都会设置 `DISABLE_TELEMETRY=1`。
 
+## Git 认证与卡死防护
+
+skills CLI 在自己的 TUI 里执行 `git clone`，交互式认证提示（SSH key passphrase、未知 host key、HTTPS 用户名密码）会被 TUI 吞掉，表现为永久卡在 `Cloning repository…`。脚本做了两层防护：
+
+- 调用 CLI 时统一设置 `GIT_SSH_COMMAND="ssh -o BatchMode=yes"` 与 `GIT_TERMINAL_PROMPT=0`，认证失败立即报错退出，而不是等待一个看不见的输入。若外部已设置 `GIT_SSH_COMMAND`（例如自定义 ssh 或 plink），脚本不覆盖。
+- 分发是只读 clone，`add-skill` 会把 GitHub 的 SSH origin（`git@github.com:owner/repo.git`）转成 `owner/repo` 简写走 HTTPS，完全绕开 SSH 认证。非 GitHub 地址原样使用。
+
+私有仓库必须走 SSH 时，用环境变量保留原始 origin，并确保 ssh-agent 已加载密钥：
+
+```bash
+eval "$(ssh-agent -s)" && ssh-add ~/.ssh/id_ed25519_github
+AGENT_SKILLS_KEEP_ORIGIN_URL=1 ./add-skill.sh --local --skill my-skill
+```
+
+```powershell
+$env:AGENT_SKILLS_KEEP_ORIGIN_URL = "1"
+```
+
+注意 `git push` 不受影响，仍在前台运行，可以正常交互输入 passphrase。
+
 ## 维护约定
 
 - 本仓库是唯一编辑入口；不要直接修改各 Agent 目录中的副本。

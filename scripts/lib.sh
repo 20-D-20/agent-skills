@@ -55,7 +55,45 @@ validate_skill_directory() {
 }
 
 run_skills() {
-  DISABLE_TELEMETRY=1 npx -y "$SKILLS_CLI_PACKAGE" "$@"
+  # skills CLI 在自己的 TUI 里执行 git clone，交互式认证提示（SSH key passphrase、
+  # 未知 host key、HTTPS 用户名密码）会被 TUI 吞掉，进程就永久挂在 "Cloning
+  # repository…"。BatchMode 让认证失败立即报错退出，而不是等待一个看不见的输入。
+  DISABLE_TELEMETRY=1 \
+    GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes}" \
+    GIT_TERMINAL_PROMPT=0 \
+    npx -y "$SKILLS_CLI_PACKAGE" "$@"
+}
+
+# 分发只是一次只读 clone，不需要写权限。把 GitHub 的 SSH origin 转成
+# owner/repo 简写后走 HTTPS，可以完全绕开 SSH 认证；非 GitHub 或无法识别的
+# 地址原样返回。设置 AGENT_SKILLS_KEEP_ORIGIN_URL=1 可强制使用原始 origin
+# （例如私有仓库必须走 SSH 的场景）。
+distribution_source_from_origin() {
+  local origin=$1 path
+
+  if [[ ${AGENT_SKILLS_KEEP_ORIGIN_URL:-0} == 1 ]]; then
+    printf '%s\n' "$origin"
+    return 0
+  fi
+
+  case $origin in
+    git@github.com:*) path=${origin#git@github.com:} ;;
+    ssh://git@github.com/*) path=${origin#ssh://git@github.com/} ;;
+    https://github.com/*) path=${origin#https://github.com/} ;;
+    http://github.com/*) path=${origin#http://github.com/} ;;
+    *)
+      printf '%s\n' "$origin"
+      return 0
+      ;;
+  esac
+
+  path=${path%.git}
+  path=${path%/}
+  if [[ $path =~ ^[^/]+/[^/]+$ ]]; then
+    printf '%s\n' "$path"
+  else
+    printf '%s\n' "$origin"
+  fi
 }
 
 has_local_agent_marker() {
