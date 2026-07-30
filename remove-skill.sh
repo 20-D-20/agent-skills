@@ -89,4 +89,5 @@ fi
 
 info "从本机全局 Agent 目录卸载 $skill"
 run_skills remove "$skill" -g -a '*' -y
+remove_antigravity_global_skill "$skill"
 info "$skill 已从本机卸载"

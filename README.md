@@ -71,6 +71,8 @@ cd agent-skills
 
 Linux 上 skills CLI 通常把内容维护在 `~/.agents/skills`，再向各 Agent 目录创建符号链接；Windows 使用目录联接（junction）。如果链接创建失败，CLI 可能回退为复制，因此仓库更新后仍建议执行一次同步。
 
+Antigravity IDE 的全局技能目录是 `~/.gemini/config/skills`。当前 `skills@1` 会把 Antigravity 归入通用 Agent，却只写入 `~/.agents/skills`；因此 Linux 维护脚本检测到 Antigravity 后，会额外把本仓库 skills 增量复制到其官方全局目录。该兼容同步会新增或覆盖同名文件，不会删除目录中额外存在的 skill；通过 `remove-skill.sh` 卸载时会同时删除对应副本。
+
 ## 收录一个 skill
 
 从外部仓库收录：

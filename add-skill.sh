@@ -127,4 +127,5 @@ else
   info "从 $distribution_source 分发 $skill"
 fi
 run_skills add "$distribution_source" -g -s "$skill" "${AGENT_ARGS[@]}" -y
+sync_antigravity_global_skills "$skill"
 info "$skill 已入库并分发"

@@ -48,4 +48,5 @@ fi
 
 info "同步全部 skills，并由 skills CLI 处理本机 Agent 目录"
 run_skills add "$REPO_DIR" -g -s '*' "${AGENT_ARGS[@]}" -y
+sync_antigravity_global_skills
 info "skills 同步完成"

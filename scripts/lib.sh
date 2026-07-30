@@ -186,6 +186,84 @@ has_local_agent_marker() {
   return 1
 }
 
+has_antigravity_install() {
+  local gemini_home=$HOME/.gemini
+  local marker
+  local -a markers=(
+    "$gemini_home/antigravity"
+    "$gemini_home/antigravity-ide"
+    "$gemini_home/antigravity-cli"
+  )
+
+  for marker in "${markers[@]}"; do
+    if [[ -e "$marker" ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+sync_antigravity_global_skills() {
+  # Antigravity IDE currently discovers global skills from
+  # ~/.gemini/config/skills. skills@1 treats Antigravity as a universal Agent
+  # and only writes global installs to ~/.agents/skills, so mirror this repo to
+  # Antigravity's documented directory until the CLI behavior is aligned.
+  has_antigravity_install || return 0
+
+  local requested_skill=${1:-}
+  local skill_dir skill_name target_dir source_real target_real
+  local target_root=${ANTIGRAVITY_SKILLS_DIR:-$HOME/.gemini/config/skills}
+  local synced_count=0
+  local -a skill_dirs
+
+  if [[ -n $requested_skill ]]; then
+    validate_skill_name "$requested_skill"
+    skill_dirs=("$REPO_DIR/skills/$requested_skill")
+  else
+    skill_dirs=("$REPO_DIR"/skills/*)
+  fi
+
+  mkdir -p -- "$target_root"
+
+  for skill_dir in "${skill_dirs[@]}"; do
+    [[ -d "$skill_dir" && -f "$skill_dir/SKILL.md" ]] || continue
+    skill_name=${skill_dir##*/}
+    validate_skill_name "$skill_name"
+    target_dir="$target_root/$skill_name"
+
+    if [[ -e "$target_dir" || -L "$target_dir" ]]; then
+      [[ -d "$target_dir" ]] || die "Antigravity skill 目标不是目录：$target_dir"
+      source_real=$(readlink -f -- "$skill_dir")
+      target_real=$(readlink -f -- "$target_dir")
+      if [[ $source_real == "$target_real" ]]; then
+        ((synced_count += 1))
+        continue
+      fi
+    else
+      mkdir -p -- "$target_dir"
+    fi
+
+    cp -a -- "$skill_dir/." "$target_dir/"
+    ((synced_count += 1))
+  done
+
+  info "已同步 $synced_count 个 skills 到 Antigravity 全局目录：$target_root"
+}
+
+remove_antigravity_global_skill() {
+  local skill_name=$1
+  local target_root=${ANTIGRAVITY_SKILLS_DIR:-$HOME/.gemini/config/skills}
+  local target_dir
+
+  validate_skill_name "$skill_name"
+  target_dir="$target_root/$skill_name"
+  if [[ -e "$target_dir" || -L "$target_dir" ]]; then
+    rm -rf -- "$target_dir"
+    info "已从 Antigravity 全局目录卸载 $skill_name"
+  fi
+}
+
 require_detectable_agent_or_all() {
   local all_agents=$1
   if [[ $all_agents == true ]]; then
