@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   将中央仓库 rules/ 分发到一个或多个项目的 .claude/rules 与 .agent/rules。
 .EXAMPLE

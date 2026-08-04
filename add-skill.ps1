@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   把一个 skill 收进中央仓库并分发到本机已安装的 Agent。
 .DESCRIPTION
