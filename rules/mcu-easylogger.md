@@ -1,6 +1,8 @@
 ---
 trigger: glob
 globs: **/*.{c,h}
+paths:
+  - "**/*.{c,h}"
 description: EasyLogger 日志接入规范、TAG 注册与日志级别选择要求
 ---
 

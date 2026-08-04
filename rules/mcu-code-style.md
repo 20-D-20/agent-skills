@@ -1,6 +1,8 @@
 ---
 trigger: glob
 globs: **/*.{c,h}
+paths:
+  - "**/*.{c,h}"
 description: 嵌入式 C 代码规范：变量/函数命名（匈牙利前缀）、头文件守卫模板、中文 Doxygen 注释、AStyle 格式化、FreeRTOS 栈管理
 ---
 

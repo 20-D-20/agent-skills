@@ -1,6 +1,8 @@
 ---
 trigger: glob
 globs: **/*.{cpp,h,hpp,ui,c}
+paths:
+  - "**/*.{cpp,h,hpp,ui,c}"
 description: 用户可见文案与诊断日志分离规范：页面文案、弹窗、Toast、状态栏、进度提示、确认信息、输入校验等面向用户内容的写法要求
 ---
 

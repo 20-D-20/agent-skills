@@ -1,6 +1,8 @@
 ---
 trigger: glob
 globs: **/*.{cpp,h,hpp}
+paths:
+  - "**/*.{cpp,h,hpp}"
 description: Qt 分层架构设计原则、信号槽规范、模块解耦策略、内存与线程安全模型
 ---
 

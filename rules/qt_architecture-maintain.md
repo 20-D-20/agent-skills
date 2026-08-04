@@ -1,6 +1,8 @@
 ---
 trigger: glob
 globs: **/*.{cpp,h,hpp}
+paths:
+  - "**/*.{cpp,h,hpp}"
 ---
 
 # 架构文档自动维护
