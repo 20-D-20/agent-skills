@@ -203,7 +203,7 @@ function Assert-PushSafe([string]$Repository)
 
 foreach ($dependency in @("git", "node", "npm", "npx")) { Assert-Command $dependency }
 
-$nodeMajorOutput = & node -p 'Number(process.versions.node.split(".")[0])'
+$nodeMajorOutput = & node -p 'parseInt(process.versions.node)'
 Assert-LastExit "无法读取 Node.js 版本"
 $nodeMajor = 0
 if (-not [int]::TryParse(([string]$nodeMajorOutput).Trim(), [ref]$nodeMajor)) {
