@@ -15,6 +15,7 @@ agent-skills/
 ├── remove-skill.sh      # 本机卸载或从中央仓库删除
 ├── sync-rules.sh        # 向一个或多个项目同步 rules
 ├── add-skill.ps1        # Windows 收录与分发
+├── remove-skill.ps1     # Windows 删除
 └── sync-rules.ps1       # Windows rules 同步
 ```
 
@@ -153,6 +154,16 @@ npx -y skills@1 add 20-D-20/agent-skills -g -s '*' -y
 ```
 
 明确同步到全部 Agent 时增加 `-AllAgents`。Windows 脚本同样会做零 Agent 防护、隔离导入、目标路径独立提交和旧提交 push 防护。
+
+删除一个 skill：
+
+```powershell
+.\remove-skill.ps1 -Skill cool-skill
+.\remove-skill.ps1 -Skill cool-skill -FromRepo
+.\remove-skill.ps1 -Skill cool-skill -FromRepo -NoPush -Yes
+```
+
+行为与 `remove-skill.sh` 一致：默认只从本机全局 Agent 目录卸载；`-FromRepo` 会同时从中央仓库删除、创建独立提交并默认 push（要求交互式输入 skill 名称确认，或传 `-Yes` 跳过）；`-NoPush` 只能与 `-FromRepo` 一起使用。
 
 向一个或多个项目同步 rules：
 
