@@ -1,6 +1,6 @@
 ---
 name: prototype
-description: Build a throwaway prototype to answer a design question. Use when the user wants to sanity-check whether a state model or logic feels right, or explore what a UI should look like.
+description: 构建一次性原型来回答设计问题。适用于验证状态机/业务逻辑是否顺手（LOGIC.md），或对比几种嵌入式界面布局方案该怎么选（UI.md，覆盖 LVGL / Qt for MCU / 自研屏幕驱动）。
 ---
 
 # Prototype
@@ -11,10 +11,10 @@ A prototype is **throwaway code that answers a question**. The question decides 
 
 Identify which question is being answered — from the user's prompt, the surrounding code, or by asking if the user is around:
 
-- **"Does this logic / state model feel right?"** → [LOGIC.md](LOGIC.md). Build a tiny interactive terminal app that pushes the state machine through cases that are hard to reason about on paper.
-- **"What should this look like?"** → [UI.md](UI.md). Generate several radically different UI variations on a single route, switchable via a URL search param and a floating bottom bar.
+- **"Does this logic / state model feel right?"** → [LOGIC.md](LOGIC.md). Build a tiny interactive terminal app that pushes the state machine through cases that are hard to reason about on paper. 覆盖状态机、协议解析、菜单导航这类交互逻辑（也包括编码器/按键驱动的菜单——长按语义、滚动窗口这些都是状态机问题）。
+- **"这几种界面布局该选哪个？"** → [UI.md](UI.md)。面向嵌入式屏幕（LVGL / Qt for MCU / 自研驱动），在真实分辨率下并排对比几个结构不同的方案，靠专用按键切换，而不是网页交互。
 
-The two branches produce very different artifacts — getting this wrong wastes the whole prototype. If the question is genuinely ambiguous and the user isn't reachable, default to whichever branch better matches the surrounding code (a backend module → logic; a page or component → UI) and state the assumption at the top of the prototype.
+两个分支产出的原型形态完全不同——选错了等于白做。问题本身模糊、又联系不到用户时，按周边代码判断：状态机/协议解析/菜单导航逻辑 → logic；带屏幕渲染的布局/视觉方案对比 → UI；并在原型顶部写明这个假设。
 
 ## Rules that apply to both
 

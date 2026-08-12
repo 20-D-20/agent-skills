@@ -1,112 +1,81 @@
-# UI Prototype
+# UI Prototype（嵌入式屏幕）
 
-Generate **several radically different UI variations** on a single route, switchable from a floating bottom bar. The user flips between variants in the browser, picks one (or steals bits from each), then throws the rest away.
+在真实分辨率、真实色深下**并排对比几种结构上真正不同的界面方案**，用户在真机模拟器里切换查看，选一个（或从中各取所长），其余原型代码扔到废弃分支。目标是 LVGL、Qt for MCU 或自研屏幕驱动的嵌入式界面。
 
-If the question is about logic/state rather than what something looks like — wrong branch. Use [LOGIC.md](LOGIC.md).
+如果问题是关于交互状态机顺不顺手（比如编码器驱动的菜单导航、长按语义），不是这里 —— 用 [LOGIC.md](LOGIC.md)。
 
-## When this is the right shape
+## 何时适用
 
-- "What should this page look like?"
-- "I want to see a few options for this dashboard before committing."
-- "Try a different layout for the settings screen."
-- Any time the user would otherwise spend a day picking between three vague mockups in their head.
+- "这几种布局哪个更清楚"
+- "设置界面想换个排布，先看看效果再定"
+- "主界面信息该怎么摆，先做几版对比一下"
+- 任何"与其在脑子里对比几个模糊的方案，不如实际跑起来看"的场景
 
-## Two sub-shapes — strongly prefer sub-shape A
+## 0. 先确认要不要自己搭仿真环境
 
-A UI prototype is much easier to judge when it's **butting up against the rest of the app** — real header, real sidebar, real data, real density. A throwaway route on its own is a vacuum: every variant looks fine in isolation. Default to sub-shape A whenever there's a plausible existing page to host the variants. Only reach for sub-shape B if the prototype genuinely has no nearby home.
+三种渲染目标现成基础设施差别很大，别一律自己糊仿真：
 
-### Sub-shape A — adjustment to an existing page (preferred)
+- **Qt** 本身就是桌面框架，直接在 PC 上跑正式代码即可，通常用不上这个 skill
+- **LVGL** 官方自带 SDL 桌面模拟器（`lv_port_pc_simulator`），生产渲染代码原样跑在 PC 上，比自建仿真更贴近真实效果
+- **u8g2** 官方提供 SDL 系列后端，同样能让正式 API 调用原样跑在 PC 上
+- 只有**真正自研的裸机屏幕驱动**（自己写时序、自己管字库），没有现成模拟器，才需要按下面的方式自己搭一个最简仿真渲染
 
-The route already exists. Variants are rendered **on the same route**, gated by a `?variant=` URL search param. The existing data fetching, params, and auth all stay — only the rendering swaps. This is the default; pick it unless there's a specific reason not to.
+## 流程
 
-If the prototype is for something that doesn't yet have a page but *would naturally live inside one* (a new section of the dashboard, a new card on the settings screen, a new step in an existing flow) — that's still sub-shape A. Mount the variants inside the host page.
+### 1. 写下问题，定变体数 N
 
-### Sub-shape B — a new page (last resort)
+默认 3 个变体。超过 5 个就不再是"结构性差异"，是噪音，到此为止。
 
-Only use this when the thing being prototyped genuinely has no existing page to live inside — e.g. an entirely new top-level surface, or a flow that can't be embedded anywhere sensible.
+一句话写清楚在比什么，比如："设置界面的三种布局方案，在 128×64 单色屏上对比，编码器操作切换。"
 
-Create a **throwaway route** following whatever routing convention the project already uses — don't invent a new top-level structure. Name it so it's obviously a prototype (e.g. include the word `prototype` in the path or filename). Same `?variant=` pattern.
+### 2. 生成结构上真正不同的变体
 
-Before committing to sub-shape B, sanity-check: is there really no existing page this could be embedded in? An empty route hides design problems that a populated one would expose.
+依据：
 
-In both sub-shapes the floating bottom bar is identical.
+- 屏幕实际分辨率、色深、可用的字体/图标资源
+- 项目现有的组件库/绘制方式
+- 每个变体一个清晰的建屏函数名，如 `build_variant_a`
 
-## Process
+变体必须是**结构性差异**——布局、信息层级、主要操作方式不同，不是换个配色或图标。嵌入式场景下常见的结构性差异轴线：单列列表 vs 网格 vs 轮播、图标优先 vs 文字优先的行布局、编码器旋转映射成"移动光标"还是"滚动整屏"。如果两个草案太像，明确要求其中一个"不要用列表布局"重新画。
 
-### 1. State the question and pick N
+### 3. 变体是建屏函数数组，全部编译进同一个二进制
 
-Default to **3 variants**. More than 5 stops being radically different and starts being noise — cap there.
+不用路由组件，用函数指针数组，运行时切换，避免每次对比都要重新编译：
 
-Write down the plan in one line, in the prototype's location or a top-of-file comment:
+```c
+typedef lv_obj_t* (*variant_fn)(void);
+lv_obj_t* build_variant_a(void) { /* ... */ }
+lv_obj_t* build_variant_b(void) { /* ... */ }
+lv_obj_t* build_variant_c(void) { /* ... */ }
 
-> "Three variants of the settings page, switchable via `?variant=`, on the existing `/settings` route."
-
-This works whether the user is here to push back or not.
-
-### 2. Generate radically different variants
-
-Draft each variant. Hold each one to:
-
-- The page's purpose and the data it has access to.
-- The project's component library / styling system (TailwindCSS, shadcn, MUI, plain CSS, whatever).
-- A clear exported component name, e.g. `VariantA`, `VariantB`, `VariantC`.
-
-Variants must be **structurally different** — different layout, different information hierarchy, different primary affordance, not just different colours. Three slightly-tweaked card grids isn't a UI prototype, it's wallpaper. If two drafts come out too similar, redo one with explicit "do not use a card grid" guidance.
-
-### 3. Wire them together
-
-Create a single switcher component on the route:
-
-```tsx
-// pseudo-code — adapt to the project's framework
-const variant = searchParams.get('variant') ?? 'A';
-return (
-  <>
-    {variant === 'A' && <VariantA {...data} />}
-    {variant === 'B' && <VariantB {...data} />}
-    {variant === 'C' && <VariantC {...data} />}
-    <PrototypeSwitcher variants={['A','B','C']} current={variant} />
-  </>
-);
+static variant_fn variants[]       = { build_variant_a, build_variant_b, build_variant_c };
+static const char* variant_names[] = { "A — 卡片流", "B — 侧边栏", "C — 分页" };
 ```
 
-For sub-shape A (existing page): keep all the existing data fetching above the switcher; only the rendered subtree changes per variant.
+如果项目已经有屏幕管理器，变体优先挂在已有的屏幕切换机制上对比（更贴近真实使用密度）；只有这是全新的、还没有宿主屏幕的流程时，才单独起一个原型入口。
 
-For sub-shape B (new page): the throwaway route under `/prototype/<name>` mounts the same switcher.
+### 4. 切换键必须独立于被测输入设备
 
-### 4. Build the floating switcher
+如果被测交互本身是编码器（`ROTATE_CW`/`ROTATE_CCW`/`CLICK`/`LONG_PRESS`），切换变体的键要用这四个之外的键（比如键盘 `Tab`/`Shift+Tab`）。切换变体的操作绝不能占用被测设备的键位，否则分不清这次操作是在测试变体、还是在切变体。
 
-A small fixed-position bar at the bottom-centre of the screen with three pieces:
+覆盖层用 LVGL 的 `lv_layer_top()` 挂一个显示当前变体名的 label，Qt 就用一个置顶的小 `QLabel`。整段覆盖层代码包在 `#ifdef PROTOTYPE_BUILD` 里——要的是编译期就不存在，而不是运行时判断隐藏，避免正式固件里混进一丁点原型代码的运行时开销或误触风险。
 
-- **Left arrow** — cycles to the previous variant (wraps around).
-- **Variant label** — shows the current variant key and, if the variant exports a name, that name too. e.g. `B — Sidebar layout`.
-- **Right arrow** — cycles forward (wraps around).
+### 5. 必须在真实分辨率、真实色深、真实字体下对比
 
-Behaviour:
+模拟器窗口按物理屏幕实际分辨率/色深渲染（128×64 单色就设成 128×64 单色，别图方便放大成桌面分辨率的彩色窗口），字体用固件里实际会用的那款点阵字体资源。"在大彩屏模拟器里看着挺清楚"不等于"在真实 128×64 单色屏上不糊"。
 
-- Clicking an arrow updates the URL search param (use the framework's router — `router.replace` on Next, `navigate` on React Router, etc) so the variant is shareable and reload-stable.
-- Keyboard: `←` and `→` arrow keys also cycle. Don't intercept arrow keys when an `<input>`, `<textarea>`, or `[contenteditable]` is focused.
-- Visually distinct from the page (e.g. high-contrast pill, subtle shadow) so it's obviously not part of the design being evaluated.
-- Hidden in production builds — gate on `process.env.NODE_ENV !== 'production'` or an equivalent check, so a stray prototype merge can't ship the bar to users.
+### 6. 交给用户
 
-Put the switcher in a single shared component so both sub-shapes can reuse it. Locate it wherever shared UI lives in the project.
+把可执行文件/模拟器入口给用户，让他们自己切着看。有意思的反馈通常是"我想要 A 的头部配上 C 的列表"——这才是真正想要的设计。
 
-### 5. Hand it over
+### 7. 收尾
 
-Surface the URL (and the `?variant=` keys). The user will flip through whenever they get to it. The interesting feedback is usually **"I want the header from B with the sidebar from C"** — that's the actual design they want.
+选中的 `build_variant_x` 改名转正、合入正式屏幕管理器；变体数组、切换覆盖层、`#ifdef PROTOTYPE_BUILD` 整块连同对比结论一起放到废弃分支，不进 main。
 
-### 6. Capture the answer and clean up
+## 反模式
 
-Once a variant has won, capture the answer — which variant and why — then capture the prototype the way the [SKILL](SKILL.md) describes. Fold the winner into the real code and move the rest onto the throwaway branch, not into main:
-
-- **Sub-shape A** — fold the winner into the existing page; drop the losing variants and the switcher from main.
-- **Sub-shape B** — promote the winning variant to a real route; drop the throwaway route and the switcher from main.
-
-The full set of variants is the primary source, so it lands on the throwaway branch, not the bin — variant components and the switcher left in the main branch rot fast and confuse the next reader.
-
-## Anti-patterns
-
-- **Variants that differ only in colour or copy.** That's a tweak, not a prototype. Real variants disagree about structure.
-- **Sharing too much code between variants.** A shared `<Header>` is fine; a shared `<Layout>` defeats the point. Each variant should be free to throw out the layout.
-- **Wiring variants to real mutations.** Read-only prototypes are fine. If a variant needs to mutate, point it at a stub — the question is "what should this look like", not "does the backend work".
-- **Promoting the prototype directly to production.** The variant code was written under prototype constraints (no tests, minimal error handling). Rewrite it properly when you fold it in.
+- **只换配色/文案的不叫变体**，那是微调，不是原型要回答的问题
+- **变体之间共享太多代码**——共享一个头部组件没问题，共享整个布局骨架就失去了对比结构性差异的意义
+- **切换键占用被测设备的输入通道**——会让你分不清当前操作是在测变体还是在切变体
+- **拿桌面分辨率/彩色窗口代替真实屏幕参数**——看着舒服不代表真机上不糊
+- **把原型代码直接升级成正式代码**——原型是在"无测试、最简错误处理"约束下写的，选定方案后要重新按正式代码标准写一遍
