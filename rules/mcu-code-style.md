@@ -3,7 +3,7 @@ trigger: glob
 globs: **/*.{c,h}
 paths:
   - "**/*.{c,h}"
-description: 嵌入式 C 代码规范：变量/函数命名（匈牙利前缀）、头文件守卫模板、中文 Doxygen 注释、AStyle 格式化、FreeRTOS 栈管理
+description: 嵌入式 C 代码规范：变量/函数命名（匈牙利前缀）、头文件守卫模板、函数内部写法（单一职责/长度/提前返回）、中文 Doxygen 注释、AStyle 格式化、FreeRTOS 栈管理
 ---
 
 # 📐 嵌入式代码规范
@@ -70,6 +70,50 @@ typedef enum { STATE_IDLE } State_E;  /* 枚举后缀 _E */
 #define MAX_SIZE 256
 ```
 
+**函数名要求**：
+
+- **动词开头**，说明在做什么动作：`drv_flash_erase()` 而非 `drv_flash_op()`
+- **准确用词**，不同动词表达不同语义：`read`（读取）/ `get`（取缓存值）/ `parse`（解析）/ `check`（校验）不可混用
+- 禁止无信息名：`proc()`、`handle()`、`func1()`、`do_it()`
+- 同时禁止超长名：`Process_UART1_Receive_And_Check_CRC_Then_Parse()` —— 名字长到这个程度，说明函数违反了单一职责，该拆的是函数不是名字
+
+## 函数内部写法
+
+> 对外接口的签名契约（参数个数、`const`、返回值、错误码、入参校验）见 `rules/mcu-architecture-design.md`「跨层接口的函数契约」。本节只管 `.c` 内部怎么写。
+
+### 单一职责
+
+一个函数只干一件事。**判据：试着给函数取名字，如果必须用"和"或"并且"才能描述清楚，就该拆。**
+
+外设初始化不要塞进一个几百行的 `System_Init()`，拆成 `clock_init()` / `gpio_init()` / `uart_init()`，主初始化函数只负责编排调用顺序和处理错误——哪一步失败一眼可见。
+
+### 函数出口
+
+不采用 MISRA-C 的严格单一出口（会导致大量嵌套 `if-else`，反而降低可读性）。采用折中写法：**开头用提前返回过滤错误，末尾统一返回正常结果**。
+
+```c
+int32_t module_do_something(const Cfg_ST *pCfg)
+{
+    if (NULL == pCfg)      { return ERR_PARAM; }   /* 提前返回，过滤异常 */
+    if (!s_bInited)        { return ERR_STATE; }
+
+    /* 主逻辑不必嵌套在 if 里 */
+
+    return ERR_OK;
+}
+```
+
+### 返回值必须被使用
+
+MISRA-C 明确要求：**非 `void` 函数的返回值必须被使用**。有返回值却不检查，比一开始就写 `void` 更糟——它制造了"已做错误处理"的假象。
+
+确实不需要的返回值（如 `printf`），用 `(void)` 显式标记，既消除静态分析告警，也表明这是有意为之：
+
+```c
+(void)printf("boot\r\n");
+(void)argument;            /* FreeRTOS 任务函数的未用参数 */
+```
+
 ## 📝 注释规范
 
 - **语言**：必须使用**中文**。
@@ -80,9 +124,9 @@ typedef enum { STATE_IDLE } State_E;  /* 枚举后缀 _E */
 /**
  * @brief  模块初始化
  * @param  [in] pConfig: 配置指针
- * @retval 0:成功, -1:参数错误
+ * @retval ERR_OK:成功, ERR_PARAM:参数非法
  */
-s32 module_init(const Msg_ST *pMsg);
+int32_t module_init(const Msg_ST *pMsg);
 
 /* 示例 */
 RCC->D1CFGR = 0x00; /* 寄存器清零 */
