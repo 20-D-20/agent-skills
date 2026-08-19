@@ -31,7 +31,9 @@ require_common_dependencies() {
 
 require_supported_node() {
   local node_major
-  node_major=$(node -p 'Number(process.versions.node.split(".")[0])') || die "无法读取 Node.js 版本"
+  # 用 -e + console.log 而非 -p：-p 走 util.inspect，Node 24 起即使输出到管道
+  # 也会给数字加 ANSI 颜色码，导致下面的数字校验失败
+  node_major=$(node -e 'console.log(process.versions.node.split(".")[0])') || die "无法读取 Node.js 版本"
   [[ $node_major =~ ^[0-9]+$ ]] || die "无法识别 Node.js 主版本：$node_major"
   ((node_major >= 18)) || die "Node.js 版本过低：需要 18 或更高版本，当前为 $(node --version)"
 }
