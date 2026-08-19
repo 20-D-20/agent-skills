@@ -1,0 +1,182 @@
+/**
+ * 模板：一条链路的静态缓冲 + 配置 + 初始化
+ *
+ * 占位符（全部替换掉，不要留任何 {{ }}）：
+ *   {{LINK}}        链路小写短名，用作变量前缀，如 gun / disp / sensor
+ *   {{LINK_UPPER}}  同名大写，用作宏前缀，如 GUN / DISP / SENSOR
+ *   {{SELF_ADDR}}   本实例的本机地址，如 0x01U
+ *   {{MAX_PAYLOAD}} 本实例 payload 配额，须 <= COMM_PAYLOAD_LEN_MAX
+ *   {{RING_SIZE}}   接收环大小，必须是 2 的幂，建议 >= 2 * 最大帧长
+ *   {{SLOT_COUNT}}  并发待确认请求数，一般 2~4
+ *   {{RESP_EXTRA}}  应答里最大的附加数据字节数（不含 status），一般几字节
+ *
+ * RAM 估算（字节）：
+ *   RING_SIZE
+ * + (MAX_PAYLOAD + 11) * (1 + SLOT_COUNT)      接收组帧缓冲 + 各发送槽
+ * + (RESP_EXTRA + 12)                          应答组帧缓冲
+ * + DUP_COUNT * (DUP_RESP_CAP + 20)            去重缓存（不用可整段删掉）
+ *
+ * 放置位置：业务模块（app_{{LINK}}.c）内部，紧邻该链路的任务实现。
+ */
+
+#include "comm_link.h"
+#include "cmsis_os.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include <string.h>
+
+#include "sys_log.h"
+#define LOG_TAG    LOG_TAG_{{LINK_UPPER}}
+#include <elog.h>
+
+/* ============================================================================
+ * 尺寸参数 —— 只改这几行即可缩放本实例的 RAM 占用
+ * ============================================================================ */
+
+#define {{LINK_UPPER}}_SELF_ADDR      {{SELF_ADDR}}
+#define {{LINK_UPPER}}_MAX_PAYLOAD    {{MAX_PAYLOAD}}
+#define {{LINK_UPPER}}_RING_SIZE      {{RING_SIZE}}      /* 必须是 2 的幂 */
+#define {{LINK_UPPER}}_SLOT_COUNT     {{SLOT_COUNT}}
+#define {{LINK_UPPER}}_RESP_EXTRA     {{RESP_EXTRA}}
+#define {{LINK_UPPER}}_DUP_COUNT      4U                 /* 置 0 即关闭去重 */
+#define {{LINK_UPPER}}_DUP_RESP_CAP   32U
+#define {{LINK_UPPER}}_DUP_TTL_MS     5000U
+#define {{LINK_UPPER}}_ACK_TIMEOUT_MS 500U
+#define {{LINK_UPPER}}_MAX_RETRY      3U
+
+#define {{LINK_UPPER}}_FRAME_CAP      ({{LINK_UPPER}}_MAX_PAYLOAD + COMM_FRAME_OVERHEAD)
+#define {{LINK_UPPER}}_RESP_CAP       ({{LINK_UPPER}}_RESP_EXTRA + 1U + COMM_FRAME_OVERHEAD)
+
+/* ============================================================================
+ * 静态缓冲 —— 全部由本文件持有，框架零动态分配
+ * ============================================================================ */
+
+static CommLink_ST     s_st{{LINK}}Link;
+static uint8_t         s_au8{{LINK}}Ring[{{LINK_UPPER}}_RING_SIZE];
+static uint8_t         s_au8{{LINK}}RxFrame[{{LINK_UPPER}}_FRAME_CAP];
+static uint8_t         s_au8{{LINK}}RespFrame[{{LINK_UPPER}}_RESP_CAP];
+static CommTxSlot_ST   s_ast{{LINK}}Slots[{{LINK_UPPER}}_SLOT_COUNT];
+static uint8_t         s_au8{{LINK}}SlotBuf[{{LINK_UPPER}}_SLOT_COUNT * {{LINK_UPPER}}_FRAME_CAP];
+static CommDupEntry_ST s_ast{{LINK}}Dup[{{LINK_UPPER}}_DUP_COUNT];
+static uint8_t         s_au8{{LINK}}DupBuf[{{LINK_UPPER}}_DUP_COUNT * {{LINK_UPPER}}_DUP_RESP_CAP];
+
+/* 供 ISR 与其它模块取用的链路句柄 */
+CommLink_ST *g_pst{{LINK}}Link = &s_st{{LINK}}Link;
+
+/* ============================================================================
+ * 平台注入
+ * ============================================================================ */
+
+/* pfSendRaw 见 port_wrapper.c.tmpl */
+extern int32_t {{LINK}}_send_raw(void *pvIo, const uint8_t *pu8Data, uint16_t u16Len);
+
+/**
+ * @brief  进入临界区（仅当多个 task 会调用 CommLink_Post 时才需要）
+ * @param  [in] pvCtx 未使用
+ * @note   若本链路只有拥有它的 task 会 Post，可把 pfLock/pfUnlock 都置 NULL
+ */
+static void {{LINK}}_lock(void *pvCtx)
+{
+    (void)pvCtx;
+    taskENTER_CRITICAL();
+}
+
+/**
+ * @brief  退出临界区
+ * @param  [in] pvCtx 未使用
+ */
+static void {{LINK}}_unlock(void *pvCtx)
+{
+    (void)pvCtx;
+    taskEXIT_CRITICAL();
+}
+
+/* ============================================================================
+ * 初始化
+ * ============================================================================ */
+
+/**
+ * @brief  初始化本链路实例
+ * @retval COMM_OK: 成功, <0: 配置非法（缓冲容量不足、必填项缺失等）
+ * @note   必须在本链路的任务进入 CommLink_Tick 循环之前调用；
+ *         紧接着还要调用 CommLink_RegisterCmdTable 注册业务命令表
+ */
+int32_t {{LINK}}_link_init(void)
+{
+    CommLinkCfg_ST stCfg;
+
+    memset(&stCfg, 0, sizeof(stCfg));
+
+    stCfg.pcName            = "{{LINK}}";
+    stCfg.u8SelfAddr        = {{LINK_UPPER}}_SELF_ADDR;
+    stCfg.u8AcceptBroadcast = 0U;
+    stCfg.u16MaxPayloadLen  = {{LINK_UPPER}}_MAX_PAYLOAD;
+
+    stCfg.pu8Ring       = s_au8{{LINK}}Ring;
+    stCfg.u16RingSize   = {{LINK_UPPER}}_RING_SIZE;
+    stCfg.pu8RxFrame    = s_au8{{LINK}}RxFrame;
+    stCfg.u16RxFrameCap = {{LINK_UPPER}}_FRAME_CAP;
+
+    stCfg.pu8RespFrame    = s_au8{{LINK}}RespFrame;
+    stCfg.u16RespFrameCap = {{LINK_UPPER}}_RESP_CAP;
+
+    stCfg.pstSlots        = s_ast{{LINK}}Slots;
+    stCfg.u8SlotCount     = {{LINK_UPPER}}_SLOT_COUNT;
+    stCfg.pu8SlotFrameBuf = s_au8{{LINK}}SlotBuf;
+    stCfg.u16SlotFrameCap = {{LINK_UPPER}}_FRAME_CAP;
+    stCfg.u16AckTimeoutMs = {{LINK_UPPER}}_ACK_TIMEOUT_MS;
+    stCfg.u8MaxRetry      = {{LINK_UPPER}}_MAX_RETRY;
+
+    stCfg.pstDup        = s_ast{{LINK}}Dup;
+    stCfg.u8DupCount    = {{LINK_UPPER}}_DUP_COUNT;
+    stCfg.pu8DupRespBuf = s_au8{{LINK}}DupBuf;
+    stCfg.u16DupRespCap = {{LINK_UPPER}}_DUP_RESP_CAP;
+    stCfg.u32DupTtlMs   = {{LINK_UPPER}}_DUP_TTL_MS;
+
+    stCfg.pfSendRaw = {{LINK}}_send_raw;
+    stCfg.pvIo      = NULL;          /* 需要区分多个 UART 时在这里传句柄 */
+
+    /* 只有本链路的 task 会 Post 时，把下面三行删掉即可 */
+    stCfg.pfLock    = {{LINK}}_lock;
+    stCfg.pfUnlock  = {{LINK}}_unlock;
+    stCfg.pvLockCtx = NULL;
+
+    /* 需要"ACK 发完再动作"（如升级后复位）时才填，见 SKILL.md */
+    stCfg.pfRespArm    = NULL;
+    stCfg.pfRespCancel = NULL;
+    stCfg.pfRespTxDone = NULL;
+
+    return CommLink_Init(&s_st{{LINK}}Link, &stCfg);
+}
+
+/* ============================================================================
+ * 任务骨架
+ * ============================================================================ */
+
+/**
+ * @brief  {{LINK}} 链路任务入口
+ * @param  argument 未使用
+ */
+void app_{{LINK}}_task(void const *argument)
+{
+    (void)argument;
+
+    if ({{LINK}}_link_init() != COMM_OK)
+    {
+        log_e("{{LINK}} link init failed");
+    }
+
+    /* 注册必须发生在收帧循环之前，否则业务命令一律被回 INVALID_CMD */
+    if (CommLink_RegisterCmdTable(&s_st{{LINK}}Link, s_ast{{LINK}}CmdTable,
+                                  (uint8_t)(sizeof(s_ast{{LINK}}CmdTable) /
+                                            sizeof(s_ast{{LINK}}CmdTable[0]))) != COMM_OK)
+    {
+        log_e("{{LINK}} cmd table register failed");
+    }
+
+    for (;;)
+    {
+        CommLink_Tick(&s_st{{LINK}}Link, osKernelSysTick());
+        osDelay(5);
+    }
+}

@@ -1,0 +1,67 @@
+/**
+ * 模板：pfSendRaw 的 HAL 实现
+ *
+ * 占位符：
+ *   {{LINK}}   链路小写短名
+ *   {{HUART}}  HAL 串口句柄，如 huart3
+ *
+ * 放置位置：与 link_instance 同一个 app_{{LINK}}.c 内。
+ *
+ * 要点：
+ *  1. 通道忙时必须返回 COMM_ERR_BUSY 而不是阻塞 —— 框架会在下个 Tick 自动重试
+ *  2. DMA 发送期间源缓冲必须保持有效，因此这里拷进一份本模块持有的静态缓冲；
+ *     若确定底层是阻塞式发送，可以省掉这次拷贝直接用入参
+ *  3. 本函数运行在拥有该链路的 task 上下文，不是 ISR
+ */
+
+#include "comm_link.h"
+#include "usart.h"
+#include <string.h>
+
+/* 发送缓冲容量须 >= 本链路的最大帧长（配额 + COMM_FRAME_OVERHEAD） */
+#define {{LINK_UPPER}}_TX_BUF_SIZE   {{LINK_UPPER}}_FRAME_CAP
+
+static uint8_t           s_au8{{LINK}}TxBuf[{{LINK_UPPER}}_TX_BUF_SIZE];
+static volatile uint32_t s_u32{{LINK}}TxDropCnt;
+
+/**
+ * @brief  通过 DMA 把一帧发出去
+ * @param  [in] pvIo    未使用（需要区分多个 UART 时可在这里取句柄）
+ * @param  [in] pu8Data 待发数据
+ * @param  [in] u16Len  数据长度
+ * @retval COMM_OK: 已启动发送, COMM_ERR_PARAM: 参数非法, COMM_ERR_BUSY: 通道忙
+ */
+int32_t {{LINK}}_send_raw(void *pvIo, const uint8_t *pu8Data, uint16_t u16Len)
+{
+    (void)pvIo;
+
+    if (pu8Data == NULL || u16Len == 0U || u16Len > sizeof(s_au8{{LINK}}TxBuf))
+    {
+        return COMM_ERR_PARAM;
+    }
+
+    if ({{HUART}}.gState != HAL_UART_STATE_READY)
+    {
+        s_u32{{LINK}}TxDropCnt++;
+        return COMM_ERR_BUSY;       /* 让框架下个 Tick 重试，不要在这里阻塞等待 */
+    }
+
+    memcpy(s_au8{{LINK}}TxBuf, pu8Data, u16Len);
+
+    if (HAL_UART_Transmit_DMA(&{{HUART}}, s_au8{{LINK}}TxBuf, u16Len) != HAL_OK)
+    {
+        s_u32{{LINK}}TxDropCnt++;
+        return COMM_ERR_BUSY;
+    }
+
+    return COMM_OK;
+}
+
+/**
+ * @brief  获取底层发送失败累计次数（供诊断打印）
+ * @return 失败次数
+ */
+uint32_t {{LINK}}_get_tx_drop_count(void)
+{
+    return s_u32{{LINK}}TxDropCnt;
+}

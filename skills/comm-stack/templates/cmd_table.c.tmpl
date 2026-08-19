@@ -1,0 +1,169 @@
+/**
+ * 模板：业务命令表 + handler 骨架
+ *
+ * 占位符：
+ *   {{LINK}}  链路小写短名
+ *
+ * 放置位置：业务模块内部，位于 app_{{LINK}}_task 之前（表必须先于使用处定义）。
+ *
+ * 新增一条命令的完整步骤：
+ *   1. 在本文件顶部定义命令码宏
+ *   2. 写一个 static 的 {{LINK}}_handle_xxx()
+ *   3. 在 s_ast{{LINK}}CmdTable[] 末尾加一行
+ *   框架侧 src/ 下的任何文件都不需要动。
+ *
+ * handler 铁律：
+ *   - 同步执行在拥有该链路的 task 上下文，必须快返回
+ *   - 耗时动作（擦 Flash、读慢传感器、等按键）一律改成"投递到自己的队列 +
+ *     立即返回 COMM_OK / COMM_ERR_BUSY"，结果通过另一条命令上报
+ *   - 写 pu8Payload 前先确认长度不超过 CommLink_RespPayloadCap(pstLink)
+ */
+
+#include "comm_link.h"
+#include <string.h>
+
+/* 日志接入见 link_instance 模板；两个模板落在同一个 .c 文件里，
+ * LOG_TAG 只需定义一次 */
+
+/* ============================================================================
+ * 命令码 —— 与对端保持一致
+ * ============================================================================ */
+
+#define CMD_{{LINK_UPPER}}_PING        0x01U   /* 心跳 */
+#define CMD_{{LINK_UPPER}}_GET_STATUS  0x03U   /* 取设备状态 */
+#define CMD_{{LINK_UPPER}}_DATA        0x20U   /* 周期数据，fire-and-forget */
+
+/* ============================================================================
+ * Handler
+ * ============================================================================ */
+
+/**
+ * @brief  处理心跳命令
+ * @param  [in]  pstLink  所属链路
+ * @param  [in]  pstReq   请求帧
+ * @param  [out] pu8Pl    应答附加数据缓冲
+ * @param  [out] pu16Len  应答附加数据长度
+ * @retval COMM_OK: 成功, <0: 错误码（框架自动转成协议 status）
+ */
+static int32_t {{LINK}}_handle_ping(CommLink_ST *pstLink, const CommFrameInfo_ST *pstReq,
+                                    uint8_t *pu8Pl, uint16_t *pu16Len)
+{
+    (void)pstLink;
+    (void)pstReq;
+    (void)pu8Pl;
+
+    *pu16Len = 0U;
+    return COMM_OK;
+}
+
+/**
+ * @brief  处理取设备状态命令
+ * @param  [in]  pstLink  所属链路
+ * @param  [in]  pstReq   请求帧
+ * @param  [out] pu8Pl    应答附加数据缓冲
+ * @param  [out] pu16Len  应答附加数据长度
+ * @retval COMM_OK / COMM_ERR_NOT_READY
+ */
+static int32_t {{LINK}}_handle_get_status(CommLink_ST *pstLink, const CommFrameInfo_ST *pstReq,
+                                          uint8_t *pu8Pl, uint16_t *pu16Len)
+{
+    (void)pstReq;
+
+    if (CommLink_RespPayloadCap(pstLink) < 1U)
+    {
+        return COMM_ERR_BUFFER_FULL;
+    }
+
+    pu8Pl[0] = 0U;      /* TODO: 填入真实状态字节 */
+    *pu16Len = 1U;
+    return COMM_OK;
+}
+
+/**
+ * @brief  处理周期数据（fire-and-forget，框架不会回任何帧）
+ * @param  [in]  pstLink  所属链路
+ * @param  [in]  pstReq   请求帧
+ * @param  [out] pu8Pl    未使用
+ * @param  [out] pu16Len  置 0
+ * @retval COMM_OK
+ * @note   本命令在表里 u8NeedAck = 0，因此返回值只影响统计，不会变成 status 回给对端
+ */
+static int32_t {{LINK}}_handle_data(CommLink_ST *pstLink, const CommFrameInfo_ST *pstReq,
+                                    uint8_t *pu8Pl, uint16_t *pu16Len)
+{
+    (void)pstLink;
+    (void)pu8Pl;
+
+    /* TODO: 解析 pstReq->pu8Data，长度已由框架按下表的区间校验过 */
+    (void)pstReq;
+
+    *pu16Len = 0U;
+    return COMM_OK;
+}
+
+/* ============================================================================
+ * 命令表
+ *
+ * u16MinLen / u16MaxLen 由框架在调用 handler 之前校验，越界直接回 INVALID_PARAM，
+ * 所以 handler 里不需要再判长度。
+ * u8NeedAck = 0 表示 fire-and-forget：框架不生成任何响应帧。
+ * ============================================================================ */
+
+static const CommCmdEntry_ST s_ast{{LINK}}CmdTable[] =
+{
+    /* cmd                        minLen maxLen ACK handler                    */
+    { CMD_{{LINK_UPPER}}_PING,        0U,   0U,  1U, {{LINK}}_handle_ping       },
+    { CMD_{{LINK_UPPER}}_GET_STATUS,  0U,   0U,  1U, {{LINK}}_handle_get_status },
+    { CMD_{{LINK_UPPER}}_DATA,       35U,  35U,  0U, {{LINK}}_handle_data       },
+};
+
+/* ============================================================================
+ * 主动发帧示例
+ * ============================================================================ */
+
+/**
+ * @brief  发送完成回调示例
+ * @param  [in] pstLink   所属链路
+ * @param  [in] pvCtx     Post 时传入的上下文
+ * @param  [in] eResult   发送结果
+ * @param  [in] u8Status  对端返回的状态码
+ * @param  [in] pu8Ack    ACK 附加数据（可为 NULL），仅回调期间有效
+ * @param  [in] u16AckLen ACK 附加数据长度
+ */
+static void {{LINK}}_on_tx_done(CommLink_ST *pstLink, void *pvCtx,
+                                CommTxResult_E eResult, uint8_t u8Status,
+                                const uint8_t *pu8Ack, uint16_t u16AckLen)
+{
+    (void)pstLink;
+    (void)pvCtx;
+    (void)pu8Ack;
+    (void)u16AckLen;
+
+    if (eResult != COMM_TX_OK)
+    {
+        log_w("{{LINK}} tx failed: result=%d status=0x%02X", (int)eResult, u8Status);
+    }
+}
+
+/**
+ * @brief  主动向对端发一帧
+ * @param  [in] u8DstAddr 目标地址
+ * @param  [in] pu8Data   payload
+ * @param  [in] u16Len    payload 长度
+ * @retval COMM_OK / COMM_ERR_BUFFER_FULL（发送槽满）/ COMM_ERR_OVERSIZE
+ */
+int32_t {{LINK}}_post_example(uint8_t u8DstAddr, const uint8_t *pu8Data, uint16_t u16Len)
+{
+    CommTxReq_ST stReq;
+
+    memset(&stReq, 0, sizeof(stReq));
+    stReq.u8DstAddr  = u8DstAddr;
+    stReq.u8Cmd      = CMD_{{LINK_UPPER}}_DATA;
+    stReq.pu8Data    = pu8Data;
+    stReq.u16DataLen = u16Len;
+    stReq.u8NeedAck  = 1U;
+    stReq.pfDone     = {{LINK}}_on_tx_done;
+    stReq.pvCtx      = NULL;
+
+    return CommLink_Post(g_pst{{LINK}}Link, &stReq);
+}
